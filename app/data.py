@@ -11,7 +11,6 @@ def csv_to_knowledge(csv_file_path):
             features_names=fet_and_cls[:len(fet_and_cls)-1]
             for fn in features_names:
                 feature_data[fn]=set()
-            class_category=fet_and_cls[-1]
             features_count=len(features_names)
             classes=[]
             first = False
