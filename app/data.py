@@ -1,97 +1,92 @@
 import utils as ut
+from json import dumps
 
 
-def csv_to_knowledge(csv_file_path):
-    csv_file_reader = open(csv_file_path, 'r')
+class Prediction:
+    def __init__(self, *args):
+        self.data = {}
+        for arg in args[0]:
+            label, feature = arg.split("_")
+            self.data[label] = feature
+        self.data["Prediction"] = args[1]
+
+    def __str__(self):
+        return dumps(self.data)
+
+
+def train_data(csv_file_path):
+    csv_file_generator = ut.csv_to_generator(csv_file_path)
     knowledge = {}
-    first = True
-    features_metadata = set()
-    feature_data = {}
-    for line in csv_file_reader:
-        if first:
-            fet_and_cls = ut.splitter(line)
-            features_names = fet_and_cls[:len(fet_and_cls) - 1]
-            for fn in features_names:
-                feature_data[fn] = set()
-            features_count = len(features_names)
-            classes = []
-            first = False
-        else:
-            fet_and_cls = ut.splitter(line)
-            features = fet_and_cls[:features_count]
-            class_belonged = fet_and_cls[-1]
-            class_data = knowledge.get(class_belonged, {})
-            for i in range(features_count):
-                features_metadata.add(features_names[i] + "_" + (features[i]))
-                feature_data[features_names[i]].add(features[i])
-                features_count_current = class_data.get(features_names[i] + "_" + features[i], 0)
-                features_count_current += 1
-                class_data[features_names[i] + "_" + features[i]] = float(features_count_current)
-            knowledge[class_belonged] = class_data
-            classes.append(class_belonged)
-    for class_name, class_data in knowledge.iteritems():
-        eve = class_data.keys()
-        for feature in features_metadata:
-            if feature not in eve:
-                class_data[feature] = 0.0
-    knowledge["classes"] = classes
-    knowledge["features_data"] = feature_data
-    return knowledge
-
-
-def knowledge_to_probs(knowledge):
     trained_data = {}
-    classes = knowledge["classes"]
-    del knowledge["classes"]
-    features_data = knowledge["features_data"]
-    del knowledge["features_data"]
-    distinct_classes = list(set(classes))
-    records = float(len(classes))
-    for class_d in distinct_classes:
-        count = float(len(filter(lambda x: x == class_d, classes)))
-        trained_data[class_d] = count / records
-    for class_c, set_of_probs in knowledge.iteritems():
-        for indivi_probs, count_prob in set_of_probs.iteritems():
-            features_name = indivi_probs.split("_")[0]
-            count = float(len(filter(lambda x: x == class_c, classes)))
-            trained_data[class_c + "_" + indivi_probs] = (count_prob + 1) / (count + len(features_data[features_name]))
-    trained_data["classes"] = distinct_classes
+    header = next(csv_file_generator)
+    data = ut.splitter(header)
+    feature_labels = data[:-1]
+    total_features = len(feature_labels)
+    for line in csv_file_generator:
+        data = ut.splitter(line)
+        features = data[:total_features]
+        class_belonged = data[-1]
+        class_data = knowledge.get(class_belonged, {})
+        class_data["_count"] = class_data.get("_count", 0) + 1
+        for i in range(total_features):
+            base_label = feature_labels[i] + "_"
+            label_value = features[i]
+            label = base_label + label_value
+            class_data[label] = class_data.get(base_label + label_value, 0.0) + 1.0
+        knowledge[class_belonged] = class_data
+    classes = [c for c in knowledge.keys() if c is not "features_metadata"]
+    datasize = float(sum([knowledge[class_val]["_count"] for class_val in classes]))
+    # calculating prior probability - the class probability
+    for class_val in classes:
+        trained_data[class_val] = {'prior': ut.get_probability(knowledge.get(class_val).get('_count'), datasize)}
+
+    # calculating conditional probablity
+    for class_val, data in knowledge.items():
+        for feature, occurence in data.items():
+            if feature is not '_count':
+                trained_data[class_val][feature] = ut.get_probability(occurence, data['_count'])
     return trained_data
 
 
-def csv_to_predict(csv_file_path):
-    csv_file_reader = open(csv_file_path, 'r')
-    first = True
-    predict = []
+def get_predictable(csv_file_path):
+    csv_file_reader = ut.csv_to_generator(csv_file_path)
+    predictable = []
+    header = next(csv_file_reader)
+    features = ut.splitter(header)
+    features_count = len(features)
     for line in csv_file_reader:
-        if first:
-            features = ut.splitter(line)
-            features_count = len(features)
-            first = False
-        else:
-            d = []
-            vals = ut.splitter(line)
-            for i in range(features_count):
-                d.append(features[i] + "_" + vals[i])
-            predict.append(d)
-    return predict
+        d = []
+        values = ut.splitter(line)
+        for i in range(features_count):
+            d.append(features[i] + "_" + values[i])
+        predictable.append(d)
+    return predictable
 
 
-def predict(trained_data, predict_it):
-    classes = trained_data["classes"]
-    del trained_data["classes"]
-    for predictable in predict_it:
-        likelihood = {}
-        for class_i in classes:
-            this_likli = 1.0
-            for features in predictable:
-                this_likli = this_likli * trained_data[class_i + "_" + features]
-            this_likli = this_likli * trained_data[class_i]
-            likelihood[class_i] = this_likli
-        max = 0
-        max_cate = ""
-        for cate, cate_vale in likelihood.iteritems():
-            if cate_vale > max:
-                max = cate_vale
-                max_cate = cate
-        print(predictable, max_cate)
+def predict(trained_data, predictables):
+    classes = list(trained_data.keys())
+    for predictable in predictables:
+        probability = 0.0
+        classification = ""
+        for class_val in classes:
+            class_likelihood = 1.0
+            for feature in predictable:
+                # calculating likelihood for a classes for all features
+
+                class_likelihood = class_likelihood * trained_data[class_val][feature]
+
+            # multiplying likelihood by prior probablity
+
+            class_probability = class_likelihood * trained_data[class_val]['prior']
+            if class_probability > probability:
+                classification = class_val
+                probability = class_probability
+        yield Prediction(predictable, classification)
+    return
+
+
+if __name__ == '__main__':
+    trained_data = train_data("dataset/data.csv")
+    predictions = predict(trained_data, get_predictable('dataset/predict.csv'))
+    for prediction in predictions:
+        print(prediction)

@@ -1,8 +1,8 @@
-import data as dp
+import data as d
 import settings as st
 
 if __name__ == '__main__':
-    knowledge = dp.csv_to_knowledge(st.DATA_FILE)
-    trained_data = dp.knowledge_to_probs(knowledge)
-    data_to_predict = dp.csv_to_predict(st.PREDICT_FILE)
-    dp.predict(trained_data, data_to_predict)
+    trained_data = d.train_data(st.DATA_FILE)
+    predictions = d.predict(trained_data, d.get_predictable(st.PREDICT_FILE))
+    for prediction in predictions:
+        print(prediction)

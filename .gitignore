@@ -1,3 +1,4 @@
 *.pyc
-env/
+venv
 *.log
+.idea
